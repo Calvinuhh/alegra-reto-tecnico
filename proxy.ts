@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 const WINDOW_MS = 60_000;
-const MAX_REQUESTS = 10;
+const MAX_REQUESTS = 60;
 
 type RateWindow = {
   count: number;
@@ -98,5 +98,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const proxyConfig = {
-  matcher: "/api/:path*",
+  matcher: "/api/analyze",
 };
