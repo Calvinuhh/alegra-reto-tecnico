@@ -7,6 +7,9 @@
     "build": "bun --bun next build",
     "start": "bun --bun next start"
   },
+  "engines": {
+    "bun": "latest"
+  },
   "dependencies": {
     "clsx": "^2.1.1",
     "lucide-react": "^1.7.0",
