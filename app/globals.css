@@ -1,0 +1,167 @@
+@import "tailwindcss";
+
+:root {
+    --brand: #00c8a0;
+    --brand-dim: #009e80;
+    --brand-glow: rgba(0, 200, 160, 0.18);
+    --bg-base: #0a0f0d;
+    --bg-surface: #111916;
+    --bg-elevated: #172220;
+    --bg-overlay: #1d2b28;
+    --ink: #e8f0ee;
+    --ink-dim: #8aa09a;
+    --ink-muted: #4a6660;
+    --danger: #ff4b4b;
+    --warning: #e89020;
+    --ok: #00c8a0;
+    --line: rgba(0, 200, 160, 0.12);
+    --line-strong: rgba(0, 200, 160, 0.3);
+    --line-glow: rgba(0, 200, 160, 0.5);
+}
+
+@theme inline {
+    --font-sans: var(--font-outfit);
+    --font-mono: var(--font-jetbrains);
+    --color-brand: var(--brand);
+    --color-brand-dim: var(--brand-dim);
+    --color-base: var(--bg-base);
+    --color-surface: var(--bg-surface);
+    --color-elevated: var(--bg-elevated);
+    --color-overlay: var(--bg-overlay);
+    --color-ink: var(--ink);
+    --color-ink-dim: var(--ink-dim);
+    --color-ink-muted: var(--ink-muted);
+    --color-danger: var(--danger);
+    --color-warning: var(--warning);
+    --color-ok: var(--ok);
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html {
+    height: 100%;
+    background-color: var(--bg-base);
+    color: var(--ink);
+    scroll-behavior: smooth;
+}
+
+body {
+    min-height: 100%;
+    font-family: var(--font-outfit, "Segoe UI", system-ui, sans-serif);
+    font-size: 15px;
+    line-height: 1.6;
+    background-color: var(--bg-base);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+:focus {
+    outline: none;
+}
+
+:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 3px;
+    border-radius: 2px;
+}
+
+::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+}
+::-webkit-scrollbar-track {
+    background: var(--bg-surface);
+}
+::-webkit-scrollbar-thumb {
+    background: var(--line-strong);
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--brand-dim);
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+@keyframes fadeUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes pulse-brand {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.4;
+    }
+}
+
+.animate-fade-up {
+    animation: fadeUp 0.45s ease forwards;
+    opacity: 0;
+}
+
+.animate-pulse-brand {
+    animation: pulse-brand 2s ease-in-out infinite;
+}
+
+.delay-0 {
+    animation-delay: 0ms;
+}
+.delay-80 {
+    animation-delay: 80ms;
+}
+.delay-160 {
+    animation-delay: 160ms;
+}
+.delay-240 {
+    animation-delay: 240ms;
+}
+
+.scanlines::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 200, 160, 0.012) 2px,
+        rgba(0, 200, 160, 0.012) 4px
+    );
+    pointer-events: none;
+    z-index: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}

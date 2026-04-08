@@ -1,0 +1,424 @@
+{
+  "name": "Alegra Agents",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "alegra-prueba-tecnica",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [1808, -48],
+      "id": "de9b5f7c-a59e-4664-9d87-5bcb2ad71f3e",
+      "name": "Webhook",
+      "webhookId": "d8fa19ce-4334-4088-ad0b-20bf69f3b2b8"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body;\nconst signals = body.signals || [];\nconst summary = body.summary || {};\nconst fileStats = body.file_stats || {};\nconst analyzedAt = body.analyzed_at || new Date().toISOString();\nconst reportEmail = body.report_email || '';\n\nconst highRisk = signals.filter(s => s.local_risk_level === 'high');\nconst mediumRisk = signals.filter(s => s.local_risk_level === 'medium');\nconst allAtRisk = [...highRisk, ...mediumRisk];\n\nconst top50 = [...highRisk]\n  .sort((a, b) => b.base_churn_score - a.base_churn_score)\n  .slice(0, 50);\n\nconst analysisId = 'alegra-' + Date.now();\n\nreturn [{\n  json: {\n    signals,\n    summary,\n    fileStats,\n    analyzedAt,\n    reportEmail,\n    highRisk,\n    mediumRisk,\n    allAtRisk,\n    top50ForLlm: top50,\n    analysisId\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2032, -48],
+      "id": "92b25c33-6cc0-4f2f-acad-c684e101adba",
+      "name": "Preparar Datos"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openRouterApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'anthropic/claude-3-5-haiku', max_tokens: 4000, temperature: 0.3, response_format: { type: 'json_schema', json_schema: { name: 'churn_enrichment', strict: true, schema: { type: 'object', properties: { enriched: { type: 'array', items: { type: 'object', properties: { user_id: { type: 'string' }, llm_risk_score: { type: 'number' }, llm_reasoning: { type: 'string' } }, required: ['user_id', 'llm_risk_score', 'llm_reasoning'], additionalProperties: false } } }, required: ['enriched'], additionalProperties: false } } }, messages: [{ role: 'system', content: 'Eres un analista experto de Customer Success en Alegra, una plataforma de contabilidad y facturacion para PYMES en latinoamerica. Tu tarea es analizar señales de churn y enriquecer cada usuario con un score de riesgo refinado y un razonamiento breve. Responde SOLO con JSON valido, sin markdown, sin explicaciones extra.' }, { role: 'user', content: 'Analiza los siguientes ' + $json.top50ForLlm.length + ' usuarios con mayor riesgo de churn y devuelve un JSON con la estructura: {\"enriched\": [{\"user_id\": \"...\", \"llm_risk_score\": 0.0, \"llm_reasoning\": \"...breve razon en español max 100 chars...\"}]}\\n\\nDatos de usuarios:\\n' + JSON.stringify($json.top50ForLlm.map(u => ({user_id: u.user_id, plan: u.plan, country: u.country, mrr_usd: u.mrr_usd, days_since_last_use: u.days_since_last_use, open_tickets: u.open_tickets, critical_tickets: u.critical_tickets, feature_adoption_score: u.feature_adoption_score, features_adopted: u.features_adopted, base_churn_score: u.base_churn_score}))) + '\\n\\nReglas: llm_risk_score debe ser float entre 0 y 1 (1 = churn casi seguro). El razonamiento debe ser conciso, en español, max 100 caracteres. Regla final obligatoria: Devuelve EXACTAMENTE un objeto JSON con la clave enriched (array). Cada elemento DEBE tener exactamente estas 3 claves: user_id (string), llm_risk_score (number entre 0 y 1), llm_reasoning (string en espanol max 100 chars). NO uses otros nombres de campo. Analiza TODOS los usuarios recibidos, devuelve uno por uno sin omitir ninguno.' }] }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2256, -48],
+      "id": "68260f2a-8205-43c5-91a2-f9a51def1e7e",
+      "name": "Agente 1 - Analista Churn",
+      "credentials": {
+        "openRouterApi": {
+          "id": "lNtt6UljxDIb7xv8",
+          "name": "OpenRouter Buffalo AI (TEMPORAL)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const prevData = $('Preparar Datos').first().json;\nconst llmResponse = $input.first().json;\n\nlet enriched = [];\ntry {\n  const content = llmResponse.choices[0].message.content;\n  const cleaned = content.replace(/```json/g, '').replace(/```/g, '').trim();\n  const parsed = JSON.parse(cleaned);\n  enriched = parsed.enriched || [];\n} catch(e) {\n  enriched = prevData.top50ForLlm.map(u => ({\n    user_id: u.user_id,\n    llm_risk_score: u.base_churn_score,\n    llm_reasoning: 'Score basado en señales locales'\n  }));\n}\n\nconst enrichedMap = {};\nfor (const e of enriched) {\n  enrichedMap[e.user_id] = e;\n}\n\nconst enrichedSignals = prevData.top50ForLlm.map(u => ({\n  ...u,\n  llm_risk_score: enrichedMap[u.user_id]?.llm_risk_score ?? u.base_churn_score,\n  llm_reasoning: enrichedMap[u.user_id]?.llm_reasoning ?? 'Sin analisis LLM'\n}));\n\nreturn [{\n  json: {\n    ...prevData,\n    enrichedSignals\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2480, -48],
+      "id": "8ccc48db-7b7a-48e3-9675-c5eb87f76a07",
+      "name": "Parsear Agente 1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openRouterApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'anthropic/claude-3-5-haiku', max_tokens: 2000, temperature: 0.4, response_format: { type: 'json_schema', json_schema: { name: 'retention_strategy', strict: true, schema: { type: 'object', properties: { insights: { type: 'array', items: { type: 'string' } }, recommended_actions: { type: 'array', items: { type: 'string' } } }, required: ['insights', 'recommended_actions'], additionalProperties: false } } }, messages: [{ role: 'system', content: 'Eres un estratega de retencion de clientes para Alegra, plataforma contable para PYMES latinoamericanas (Mexico, Colombia, Panama, Costa Rica, Republica Dominicana). Planes: Free, Pyme, Plus, Pro. Tu objetivo es generar insights accionables y acciones concretas para reducir el churn. Responde SOLO con JSON valido sin markdown.' }, { role: 'user', content: 'Analiza el siguiente resumen de churn y genera estrategias de retencion.\\n\\nResumen ejecutivo:\\n- Total usuarios: ' + $json.summary.total_users + '\\n- Alto riesgo: ' + $json.summary.high_risk_count + ' (' + (($json.summary.high_risk_count / $json.summary.total_users) * 100).toFixed(1) + '%)\\n- Medio riesgo: ' + $json.summary.medium_risk_count + '\\n- MRR en riesgo: $' + ($json.summary.total_mrr_at_risk || 0).toFixed(0) + '\\n- Score promedio: ' + ($json.summary.avg_churn_score || 0).toFixed(2) + '\\n- Tickets abiertos: ' + ($json.summary.open_tickets_total || 0) + '\\n\\nTop usuarios mas criticos (primeros 5):\\n' + JSON.stringify($json.enrichedSignals.slice(0, 5).map(u => ({user_id: u.user_id, plan: u.plan, country: u.country, llm_risk_score: u.llm_risk_score, llm_reasoning: u.llm_reasoning}))) + '\\n\\nDevuelve JSON con 5 insights analiticos y 5 acciones concretas ejecutables por el equipo de CS. Todo en español. Regla final obligatoria: Devuelve EXACTAMENTE un objeto JSON con exactamente 2 claves: insights (array de exactamente 5 strings) y recommended_actions (array de exactamente 5 strings). Cada string debe ser una oracion completa en espanol. NO uses insights_analiticos, acciones_cs, objetos anidados ni ningun otro nombre de campo.' }] }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2704, -48],
+      "id": "0cc20a15-52f1-4257-8697-617f75004faf",
+      "name": "Agente 2 - Estratega Retencion",
+      "credentials": {
+        "openRouterApi": {
+          "id": "lNtt6UljxDIb7xv8",
+          "name": "OpenRouter Buffalo AI (TEMPORAL)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const prevData = $('Parsear Agente 1').first().json;\nconst llmResponse = $input.first().json;\n\nlet insights = [];\nlet recommendedActions = [];\n\ntry {\n  const content = llmResponse.choices[0].message.content;\n  const cleaned = content.replace(/```json/g, '').replace(/```/g, '').trim();\n  const parsed = JSON.parse(cleaned);\n  const altInsights = (parsed.insights_analiticos || []).map(i => i.titulo + ': ' + i.descripcion);\n  const altActions = (parsed.acciones_cs || []).map(a => a.nombre + ': ' + a.descripcion);\n  insights = (parsed.insights && parsed.insights.length > 0) ? parsed.insights : (altInsights.length > 0 ? altInsights : []);\n  recommendedActions = (parsed.recommended_actions && parsed.recommended_actions.length > 0) ? parsed.recommended_actions : (altActions.length > 0 ? altActions : []);\n} catch(e) {\n  insights = [\n    'Se detectaron ' + prevData.summary.high_risk_count + ' usuarios en alto riesgo de churn',\n    'El MRR total en riesgo es $' + (prevData.summary.total_mrr_at_risk || 0).toFixed(0),\n    'Los usuarios Free representan la mayor concentracion de riesgo',\n    'Alta correlacion entre tickets criticos sin resolver y probabilidad de churn',\n    'La baja adopcion de features es el principal predictor de abandono'\n  ];\n  recommendedActions = [\n    'Contactar proactivamente a los top 20 usuarios de mayor riesgo esta semana',\n    'Revisar y resolver tickets criticos pendientes en menos de 24 horas',\n    'Implementar onboarding guiado para usuarios Free con baja adopcion de features',\n    'Crear campana de reactivacion para usuarios inactivos mas de 30 dias',\n    'Programar llamadas de check-in con cuentas Pro y Plus en riesgo medio'\n  ];\n}\n\nreturn [{\n  json: {\n    ...prevData,\n    insights,\n    recommendedActions\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2928, -48],
+      "id": "e3c82b87-f827-4de5-9829-9e49b123bf23",
+      "name": "Parsear Agente 2"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1FsOxwwWOGVSA2MZPk8NX97dslBXceJm0DLBwSppsoig",
+          "mode": "list",
+          "cachedResultName": "Alegra Prueba Tecnica",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1FsOxwwWOGVSA2MZPk8NX97dslBXceJm0DLBwSppsoig/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Hoja 1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1FsOxwwWOGVSA2MZPk8NX97dslBXceJm0DLBwSppsoig/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "insights_summary": "={{ $json.insights.join(' | ') }}",
+            "analysis_id": "={{ $json.analysisId }}",
+            "analyzed_at": "={{ $json.analyzedAt }}",
+            "total_users": "={{ $json.summary.total_users }}",
+            "high_risk_count": "={{ $json.summary.high_risk_count }}",
+            "medium_risk_count": "={{ $json.summary.medium_risk_count }}",
+            "low_risk_count": "={{ $json.summary.low_risk_count }}",
+            "mrr_at_risk": "={{ $json.summary.total_mrr_at_risk }}",
+            "avg_churn_score": "={{ $json.summary.avg_churn_score }}",
+            "open_tickets_total": "={{ $json.summary.open_tickets_total }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "analysis_id",
+              "displayName": "analysis_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "analyzed_at",
+              "displayName": "analyzed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "total_users",
+              "displayName": "total_users",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "high_risk_count",
+              "displayName": "high_risk_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "medium_risk_count",
+              "displayName": "medium_risk_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "low_risk_count",
+              "displayName": "low_risk_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "mrr_at_risk",
+              "displayName": "mrr_at_risk",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "avg_churn_score",
+              "displayName": "avg_churn_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "open_tickets_total",
+              "displayName": "open_tickets_total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "insights_summary",
+              "displayName": "insights_summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [3152, -48],
+      "id": "1e2cb6ba-8915-46b2-80dc-7cf6780efc3c",
+      "name": "Google Sheets - Append Row",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "HSS4eTzry9a55PtP",
+          "name": "calvin.uhh@gmail.com"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const prevData = $('Parsear Agente 2').first().json;\n\nconst pdfPayload = {\n  summary: prevData.summary,\n  high_risk_users: [\n    ...prevData.enrichedSignals,\n    ...prevData.allAtRisk.filter(u => !prevData.enrichedSignals.some(e => e.user_id === u.user_id))\n  ],\n  insights: prevData.insights,\n  recommended_actions: prevData.recommendedActions,\n  analyzed_at: prevData.analyzedAt\n};\n\nreturn [{ json: { ...prevData, pdfPayload } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3376, -48],
+      "id": "f28e84cf-3dc6-4d63-a9ba-8e9ff1b4ab1e",
+      "name": "Preparar Payload PDF"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Preparar Datos').first().json.reportEmail }}",
+        "subject": "={{ 'Reporte de Churn Alegra - ' + new Date().toLocaleDateString('es-CO') + ' | ' + $('Preparar Payload PDF').first().json.summary.high_risk_count + ' usuarios en alto riesgo' }}",
+        "message": "={{ '<html><body style=\"font-family:Arial,sans-serif;background:#111;color:#fff;padding:32px;\"><h1 style=\"color:#00C8A0;\">Reporte de Churn - Alegra</h1><p style=\"color:#aaa;\">Fecha: ' + new Date().toLocaleDateString('es-CO',{year:'numeric',month:'long',day:'numeric'}) + '</p><table style=\"width:100%;border-collapse:collapse;margin:24px 0;\"><tr style=\"background:#1a1a2e;\"><th style=\"padding:12px;text-align:left;color:#00C8A0;\">Metrica</th><th style=\"padding:12px;text-align:right;color:#00C8A0;\">Valor</th></tr><tr><td style=\"padding:10px 12px;border-bottom:1px solid #333;\">Total Usuarios</td><td style=\"padding:10px 12px;border-bottom:1px solid #333;text-align:right;\">' + $('Preparar Payload PDF').first().json.summary.total_users + '</td></tr><tr style=\"background:#1a1a1a;\"><td style=\"padding:10px 12px;border-bottom:1px solid #333;\">Alto Riesgo</td><td style=\"padding:10px 12px;border-bottom:1px solid #333;text-align:right;color:#EE4444;font-weight:bold;\">' + $('Preparar Payload PDF').first().json.summary.high_risk_count + '</td></tr><tr><td style=\"padding:10px 12px;border-bottom:1px solid #333;\">Medio Riesgo</td><td style=\"padding:10px 12px;border-bottom:1px solid #333;text-align:right;color:#FAC02E;\">' + $('Preparar Payload PDF').first().json.summary.medium_risk_count + '</td></tr><tr style=\"background:#1a1a1a;\"><td style=\"padding:10px 12px;border-bottom:1px solid #333;\">MRR en Riesgo</td><td style=\"padding:10px 12px;border-bottom:1px solid #333;text-align:right;color:#00C8A0;\">$' + ($('Preparar Payload PDF').first().json.summary.total_mrr_at_risk || 0).toFixed(0) + '</td></tr></table><h2 style=\"color:#00C8A0;\">Insights Principales</h2><ul style=\"color:#ccc;\">' + $('Preparar Payload PDF').first().json.insights.map(i => '<li style=\"margin:8px 0;\">' + i + '</li>').join('') + '</ul><h2 style=\"color:#00C8A0;\">Acciones Recomendadas</h2><ol style=\"color:#ccc;\">' + $('Preparar Payload PDF').first().json.recommendedActions.map(a => '<li style=\"margin:8px 0;\">' + a + '</li>').join('') + '</ol><p style=\"color:#555;font-size:12px;margin-top:32px;\">Generado automaticamente. Powered by AI Agents + n8n + OpenRouter.</p></body></html>' }}",
+        "options": {
+          "attachmentsUi": {
+            "attachmentsBinary": [{}]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [3824, -48],
+      "id": "19314b24-c1f8-4b3a-a04f-b081b8eecdbf",
+      "name": "Gmail - Enviar Reporte",
+      "alwaysOutputData": true,
+      "webhookId": "edb35669-4db1-4b95-bf83-352c9621e878",
+      "executeOnce": true,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "4nprwYu5gf9joueW",
+          "name": "ksuikan021@gmail.com"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://aad9-167-0-130-190.ngrok-free.app/api/export-pdf",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer token"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.pdfPayload) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3600, -48],
+      "id": "7a677821-3bee-4e9e-a14c-35b7e83837e6",
+      "name": "Generar PDF"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Preparar Datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Datos": {
+      "main": [
+        [
+          {
+            "node": "Agente 1 - Analista Churn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agente 1 - Analista Churn": {
+      "main": [
+        [
+          {
+            "node": "Parsear Agente 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Agente 1": {
+      "main": [
+        [
+          {
+            "node": "Agente 2 - Estratega Retencion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agente 2 - Estratega Retencion": {
+      "main": [
+        [
+          {
+            "node": "Parsear Agente 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parsear Agente 2": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Append Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Append Row": {
+      "main": [
+        [
+          {
+            "node": "Preparar Payload PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Payload PDF": {
+      "main": [
+        [
+          {
+            "node": "Generar PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail - Enviar Reporte": {
+      "main": [[]]
+    },
+    "Generar PDF": {
+      "main": [
+        [
+          {
+            "node": "Gmail - Enviar Reporte",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "17dff9f6-023b-4bf9-b991-b2cadb6c2221",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "54ddd6b27df24606d93684ba44ab40cb69de50bc8291eec612de33b1c29b20d2"
+  },
+  "id": "M3VEkzmwecgbQulJ",
+  "tags": []
+}
