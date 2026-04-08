@@ -13,7 +13,8 @@ Reto Técnico — AI Ops Engineer @ Alegra · Rol C: Ops Analyst de Customer Suc
 - [x] Interfaz web interactiva desplegada en Render
 - [x] 2 agentes IA coordinados (Agente 1: enriquecimiento de riesgo · Agente 2: estrategia de retención)
 - [x] 2 integraciones activas (Gmail + Google Sheets)
-- [x] Video demo -
+- [x] Video demo - https://youtu.be/7Jf_dDVSPIU
+- [x] Enlace al Google Sheets - https://docs.google.com/spreadsheets/d/1FsOxwwWOGVSA2MZPk8NX97dslBXceJm0DLBwSppsoig/edit?gid=0#gid=0
 
 ---
 
@@ -84,7 +85,7 @@ Next.js responde al browser en < 1 segundo con los resultados del scoring local.
 | PDF           | pdf-lib (generación server-side, sin dependencias externas) |
 | CSV parsing   | PapaParse                                                   |
 | Gráficos      | Recharts                                                    |
-| Orquestación  | n8n self-hosted (`https://n8n.kanluxe.shop`)                |
+| Orquestación  | n8n self-hosted                                             |
 | LLM           | Claude 3.5 Haiku vía OpenRouter API                         |
 | Integraciones | Gmail OAuth2 · Google Sheets OAuth2                         |
 | Rate limiting | Proxy middleware Next.js v16 (solo `/api/analyze`)          |
@@ -97,7 +98,7 @@ Next.js responde al browser en < 1 segundo con los resultados del scoring local.
 Crear `.env` en la raíz del proyecto:
 
 ```env
-N8N_WEBHOOK_URL=https://n8n.kanluxe.shop/webhook/alegra-prueba-tecnica
+N8N_WEBHOOK_URL=url_webhook_n8n_para_exportar_pdf
 AUTH_TOKEN=tu_token_secreto_aqui
 ```
 
